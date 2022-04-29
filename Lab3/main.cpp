@@ -10,30 +10,41 @@
 #include "texture.h"
 
 GLuint VBO;
+GLuint IBO;
 GLuint gwl;
 GLuint gSampler;
 Texture* pTexture = NULL;
 #define WINDOW_WIDTH 1000
 #define WINDOW_HEIGHT 800
 
-static const char* matrix_prog = "                                                          \n\
+static const char* pVS = "                                                          \n\
 #version 330                                                                        \n\
                                                                                     \n\
 layout (location = 0) in vec3 Position;                                             \n\
+layout (location = 1) in vec2 TexCoord;                                             \n\
                                                                                     \n\
-uniform mat4 gWorld;                                                                \n\
+uniform mat4 gWVP;                                                                  \n\
                                                                                     \n\
-void main(){                                                                         \n\                                                                                   \n\
-    gl_Position = gWorld * vec4(Position, 1.0);                                     \n\
+out vec2 TexCoord0;                                                                 \n\
+                                                                                    \n\
+void main()                                                                         \n\
+{                                                                                   \n\
+    gl_Position = gWVP * vec4(Position, 1.0);                                       \n\
+    TexCoord0 = TexCoord;                                                           \n\
 }";
 
-static const char* color_prog = "                                                          \n\
+static const char* pFS = "                                                          \n\
 #version 330                                                                        \n\
+                                                                                    \n\
+in vec2 TexCoord0;                                                                  \n\
                                                                                     \n\
 out vec4 FragColor;                                                                 \n\
                                                                                     \n\
-void main(){                                                                         \n\
-    FragColor = vec4(0.0, 1.0, 0.0, 1.0);                                           \n\
+uniform sampler2D gSampler;                                                         \n\
+                                                                                    \n\
+void main()                                                                         \n\
+{                                                                                   \n\
+    FragColor = texture2D(gSampler, TexCoord0.xy);                                  \n\
 }";
 
 class BuilderTransformator {
@@ -192,6 +203,16 @@ public:
     }
 };
 
+struct vertex {
+    glm::vec3 fst;
+    glm::vec2 snd;
+
+    vertex(glm::vec3 inp1, glm::vec2 inp2) {
+        fst = inp1;
+        snd = inp2;
+    }
+};
+
 static void render_scene() {
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -200,21 +221,26 @@ static void render_scene() {
 
     BuilderTransformator move;
 
-    move.moveObj(glm::sin(v), 0.0f, 0.0f);
+    //move.moveObj(glm::sin(v)+0.2, 0.0f, 0.0f);
+    move.rotateObj(0, v, 0);
+    //move.cameraMove(glm::sin(v), 0, 0);
 
     glUniformMatrix4fv(gwl, 1, GL_TRUE, (const GLfloat*)move.getMatrix());
 
     glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
-
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), 0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(vertex), (const GLvoid*)12);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
     pTexture->Bind(GL_TEXTURE0);
-
-    glDrawArrays(GL_POLYGON, 0, 3);
+    glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_INT, 0);
 
     glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
 
     glutSwapBuffers();
+
 }
 
 static void add_shader(GLuint share_prog, const char* text_shared, GLenum type)
@@ -264,6 +290,10 @@ int main(int argc, char** argv)
     }
 
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glFrontFace(GL_CW);
+    glCullFace(GL_BACK);
+    glEnable(GL_CULL_FACE);
+
     glm::vec4 data[6] = {
         {0.3f, -0.3f, 0.0f, 1.0f},
         {0.5f, 0.5f, 0.0f, 1.0f},
@@ -273,15 +303,25 @@ int main(int argc, char** argv)
         {0.1f, 0.5f, 0.0f, 1.0f}
     };
 
-    glm::vec3 square[4] = {
-        { -0.9f, -0.9f, 0.1f},
-        { 0.9f, -0.9f, 0.1f},
-        { 0.1f, 0.9f, 0.9f},
+    vertex input[4] = {
+        vertex(glm::vec3 {-1.0f, -1.0f, 0.5773f}, glm::vec2 {0.0f, 0.0f}),
+        vertex(glm::vec3 {0.0f, -1.0f, -1.1547}, glm::vec2 {0.0f, 0.0f}),
+        vertex(glm::vec3 {1.0f, -1.0f, 0.5773f}, glm::vec2 {1.0f, 0.0f}),
+        vertex(glm::vec3 {0.0f, 1.0f, 0.0f}, glm::vec2 {0.0f, 1.0f}),
     };
 
     glGenBuffers(1, &VBO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(square), square, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(input), input, GL_STATIC_DRAW);
+
+    unsigned int Indices[] = { 0, 3, 1,
+                           1, 3, 2,
+                           2, 3, 0,
+                           1, 2, 0 };
+
+    glGenBuffers(1, &IBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Indices), Indices, GL_STATIC_DRAW);
 
     GLuint shader_program = glCreateProgram();
 
@@ -290,11 +330,11 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    add_shader(shader_program, matrix_prog, GL_VERTEX_SHADER);
-    add_shader(shader_program, color_prog, GL_FRAGMENT_SHADER);
+    add_shader(shader_program, pVS, GL_VERTEX_SHADER);
+    add_shader(shader_program, pFS, GL_FRAGMENT_SHADER);
     glLinkProgram(shader_program);
     glUseProgram(shader_program);
-    gwl = glGetUniformLocation(shader_program, "gWorld");
+    gwl = glGetUniformLocation(shader_program, "gWVP");
     gSampler = glGetUniformLocation(shader_program, "gSampler");
 
     if (gwl == 0xFFFFFFFF) {
@@ -303,8 +343,8 @@ int main(int argc, char** argv)
     }
 
     glUniform1i(gSampler, 0);
-
-    pTexture = new Texture(GL_TEXTURE_2D, "test.png");
+    Magick::InitializeMagick(nullptr);
+    pTexture = new Texture(GL_TEXTURE_2D, "test.jpg");
 
     if (!pTexture->Load()) {
         std::cout << "error";
